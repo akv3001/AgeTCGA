@@ -1,15 +1,50 @@
-path = "~/Users/romypichardo/Downloads/cBioportal_Survival_Data"  ## path where R must look at for the files.
+path = "/Users/romypichardo/Downloads/cBioportal_test"  ## set file path 
 
-out.file <-""  ## The second line creates an empty data object to store each of the imported files
+out.file <- ""              ## empty data object store each of the importded files
 
-file.names <- dir(path, pattern =".txt")## The third line reads the path to the files, and then a loop for reading each existing file of type “.txt” as table.
+file.names <- dir(path, pattern =".txt")#### The third line reads the path to the files, and then a loop for reading each existi       
 
 for(i in 1:length(file.names)){
-  file <- read.table(file.names[i],header=FALSE, sep="\t", stringsAsFactors=FALSE)
-  
-  
-  #############   Write a loop to iterate through the clinical files 
-  #############    Create a list object with each cancer type as adataframe object
-  
+  file <- read.table(file.names[i],header=TRUE, sep=";", stringsAsFactors=FALSE)
+  out.file <- rbind(out.file, file)
   
 }
+write.table(out.file, file = "Cancer Type", sep=" ") 
+
+
+
+
+###################### Other commands to review and apply ############################# 
+
+list_clinical[["Cancer Type"]] = input_read[,c("AGE")]. ## From previous notes 
+
+new_dataframe  <- data.frame(CANCER_TYPE, AGE) ## Creating new data frame 
+
+list_of_vecs <- list() # Create empty list to store vectors
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
