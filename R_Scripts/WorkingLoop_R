@@ -1,15 +1,15 @@
 path = "/Users/romypichardo/Downloads/cBioportal_test"  ## set file path 
 
-out_file <- list()              ## empty data object store each of the importded files
+clinical_file <- list()              ## empty data object store each of the importded files
 
 file.names <- dir(path, pattern =".txt")#### The third line reads the path to the files, and then a loop for reading each existi       
 
 for(i in 1:length(file.names)){
   file <- read.table(file.names[i],header=TRUE, sep=";", stringsAsFactors=FALSE)
-  out_file <- rbind(out_file, file)
+  clinical_file <- rbind(clinical_file, file)
   
 }
-write.table(out_file, file = "Cancer Type", sep=" ") 
+write.table(clinical_file, file = "Cancer Type", sep=" ") 
 
 
 
