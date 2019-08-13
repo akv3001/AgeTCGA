@@ -9,6 +9,22 @@
 # Write a loop to iterate through the clinical files 
 # Create a list object with each cancer type as adataframe object
 
+path = "DATA/cBioportal_test"  ## set file path 
+
+file.names <- list.files(path, pattern =".txt",full.names = TRUE) ##assign name to path (looking for txt files withi directory)
+
+
+## for object(i) in 1 through length of file.names
+
+for (i in 1:length(file.names)) ## for object(i) in 1 through length of file.names
+  
+{
+  
+  print(file.names[[i]])
+  
+  
+}
+
 
 # Compute the median and mean for each cancer type , the mix , max 
 # also use a loop to do this by going through the list structure

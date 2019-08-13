@@ -1,0 +1,2 @@
+load("/Users/romypichardo/Downloads/cBioportal_Survival_Data/values.RData")
+load("/Users/romypichardo/Downloads/cBioportal_Survival_Data/Values_Cancer-Type.RData")
