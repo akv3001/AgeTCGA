@@ -1,8 +1,8 @@
 path = "/Users/romypichardo/Downloads/cBioportal_test"  ## set file path 
 
-clinical_file <- list()              ## empty data object store each of the importded files
+clinical_file <- list()   ## empty data object store each of the importded files
 
-file.names <- dir(path, pattern =".txt")#### The third line reads the path to the files, and then a loop for reading each existi       
+file.names <- dir(path, pattern =".txt") ## The third line reads the path to the files, and then a loop for reading each existi       
 
 for(i in 1:length(file.names)){
   file <- read.table(file.names[i],header=TRUE, sep=";", stringsAsFactors=FALSE)
@@ -14,6 +14,30 @@ write.table(clinical_file, file = "Cancer Type", sep=" ")
 
 
 
+
+
+
+
+##################### basic loop building from scratch #######################
+
+path = "/Users/romypichardo/Downloads/cBioportal_test"  ## set file path 
+
+file.names <- dir(path, pattern =".txt") ##assign name to path (looking for txt files withi directory)
+
+
+## for object(i) in 1 through length of file.names
+
+for (i in 1:length(file.names)) ## for object(i) in 1 through length of file.names
+
+{
+  
+  print(file.names[[1]])
+  
+  
+}
+
+
+
 ###################### Other commands to review and apply ############################# 
 
 list_clinical[["Cancer Type"]] = input_read[,c("CANCER_TYPE")]. ## From previous notes 
@@ -21,39 +45,5 @@ list_clinical[["Cancer Type"]] = input_read[,c("CANCER_TYPE")]. ## From previous
 new_dataframe  <- data.frame(CANCER_TYPE, AGE) ## Creating new data frame 
 
 list_of_vecs <- list() # Create empty list to store vectors
-
-
-##################### basic loop #######################
-
-for (i in 1:length(file_name)) {
-
-print(file_name[[1]]
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
