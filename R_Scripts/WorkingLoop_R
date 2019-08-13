@@ -23,6 +23,15 @@ new_dataframe  <- data.frame(CANCER_TYPE, AGE) ## Creating new data frame
 list_of_vecs <- list() # Create empty list to store vectors
 
 
+##################### basic loop #######################
+
+for (i in 1:length(file_name)) {
+
+print(file_name[[1]]
+
+}
+
+
 
 
 
