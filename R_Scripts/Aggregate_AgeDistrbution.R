@@ -16,8 +16,8 @@ All_CancerData <- list()    ##open list
 for (i in 1:length(file.names)) ## for object(i) in 1 through length of file.names. 
 {  
   
-  clin_data_df <- read.delim(file.names[[i]], stringsAsFactors = F)  ##create dataframe of cBio files for all cancer files
-  
+    clin_data_df <- read.delim(file.names[[i]], stringsAsFactors = F)  ##create dataframe of cBio files for all cancer files
+  ##clin_data_df <- read.table(file.names[[i]], fill = TRUE, header =TRUE, sep="\t")  ##create dataframe of cBio files for all cancer files (error messagen summary.factor)
   
   for ( type in 1:length(unique(clin_data_df$CANCER_TYPE))){  ##loop through the number cancer type
     
@@ -41,10 +41,20 @@ for (i in 1:length(file.names)) ## for object(i) in 1 through length of file.nam
     
     All_CancerData[[CancerType]] <- CancerData ## save to new list 
     
+    AgeDistribution_Agegroup <- c(totalCases=sum(SelectCases>=0),   ##cases by age (younger <40 and older >45)
+                                  mean=mean(SelectCases), 
+                                  median=median(SelectCases), 
+                                  NbrOld=sum(SelectCases>45), 
+                                  NbrYoung=sum(SelectCases<40))
+    
   }
 }
 
-print(All_CancerData) ##print list 
+##print list
+print(All_CancerData) 
+print(AgeDistribution_Agegroup) 
+
+
 
 # Append to dataframe above the median_younger/median_older columns 
 #  this would be samples < median age , sample > median age
