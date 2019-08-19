@@ -7,47 +7,48 @@
 # Write a loop to iterate through the clinical files 
 # Create a list object with each cancer type as adataframe object
 
-path = "DATA/cBioportal_test"  ## set file path 
+path = "DATA/cBioportal_Survival_Data"  ## set file path 
 
 file.names <- list.files(path, pattern =".txt",full.names = TRUE) ##assign name to path (looking for txt files withi directory)
 
-All_CancerData <- list()    ##open list
+All_CancerDataClinicalData <- list()    ##open list
+Summarized_Ages.AllCancers =  data.frame(CancerType=character(0),Median=numeric(0),Mean=numeric(0)
+                                         ,Max=numeric(0),
+                                 Min=numeric(0),Median_Younger=numeric(0),Median_Old=numeric(0),
+                                 Mean_Younger=numeric(0), Mean_Older=numeric(0))
+
 
 for (i in 1:length(file.names)) ## for object(i) in 1 through length of file.names. 
 {  
+    print(i)
+    clin_data_df <- read.table(file.names[[i]],sep="\t",stringsAsFactors = FALSE,strip.white = TRUE,fill = TRUE,header = TRUE,blank.lines.skip = TRUE)  ##create dataframe of cBio files for all cancer files
+    CancerType = unlist(strsplit(basename(file.names[[i]]),split = "_"))[[3]]
+    print(CancerType)
   
-    clin_data_df <- read.delim(file.names[[i]], stringsAsFactors = F)  ##create dataframe of cBio files for all cancer files
-  ##clin_data_df <- read.table(file.names[[i]], fill = TRUE, header =TRUE, sep="\t")  ##create dataframe of cBio files for all cancer files (error messagen summary.factor)
-  
-  for ( type in 1:length(unique(clin_data_df$CANCER_TYPE))){  ##loop through the number cancer type
-    
-    CancerType <- (clin_data_df$CANCER_TYPE)[type]   ##save cancer typeto var cancerType 
-    SelectCases <- na.omit(clin_data_df$AGE[which(clin_data_df$CANCER_TYPE == CancerType)]) ## extracting age for the cancerType
-    
+    ##save cancer typeto var cancerType 
+    clin_data_df$AGE = as.numeric(clin_data_df$AGE)
+    Median_Age=median(clin_data_df$AGE,na.rm = TRUE)
+    Mean_Age = mean(clin_data_df$AGE,na.rm = TRUE)
+    Min_Age = min(clin_data_df$AGE,na.rm = TRUE)
+    Max_Age = max(clin_data_df$AGE,na.rm = TRUE)
+    Medi_Y = nrow(clin_data_df[which(clin_data_df$AGE < Median_Age),])
+    Medi_O = nrow(clin_data_df[which(clin_data_df$AGE > Median_Age),])
+    Mean_Y = nrow(clin_data_df[which(clin_data_df$AGE < Mean_Age),])
+    Mean_O = nrow(clin_data_df[which(clin_data_df$AGE > Mean_Age),])
+    TotalNumberCases =
     
     # Compute the median and mean for each cancer type , the mix , max 
     # also use a loop to do this by going through the list structure
     # this should create a new dataframe summarized ( you did this manually in the excel originally but please execute same in code below)
     
-    
-    ##calculating range/quantile/median/mean/max/min/greater > median/ less than <median 
-    CancerData <- c(range=range(SelectCases), 
-                    median=median(SelectCases),
-                    mean=mean(SelectCases), min = SelectCases[sapply(which.min(SelectCases),min)],
-                    max=SelectCases[sapply(which.max(SelectCases),max)],
-                    OlderMedian=sum(SelectCases>median(SelectCases)),
-                    YoungerMedian=sum(SelectCases<median(SelectCases)),
-                    quantile=quantile(SelectCases))
-    
-    All_CancerData[[CancerType]] <- CancerData ## save to new list 
-    
-    AgeDistribution_Agegroup <- c(totalCases=sum(SelectCases>=0),   ##cases by age (younger <40 and older >45)
-                                  mean=mean(SelectCases), 
-                                  median=median(SelectCases), 
-                                  NbrOld=sum(SelectCases>45), 
-                                  NbrYoung=sum(SelectCases<40))
-    
-  }
+    Summarized_Ages.AllCancers = rbind(Summarized_Ages.AllCancers,
+                    data.frame(CancerType=CancerType,Median=Median_Age,Mean = Mean_Age,
+                               Max=Max_Age,Min=Min_Age,
+                               Median_Younger=Medi_Y,Median_Old=Medi_O,
+               Mean_Younger=Mean_Y, Mean_Older=Mean_O)
+    )
+
+    All_CancerDataClinicalData[[CancerType]] <- clin_data_df ## save to new list 
 }
 
 ##print list
