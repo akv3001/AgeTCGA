@@ -3,7 +3,8 @@
 # Notes/Updates
 ##########################
 
-
+library(data.table)
+library(ggpubr)
 # Write a loop to iterate through the clinical files 
 # Create a list object with each cancer type as adataframe object
 
@@ -31,12 +32,27 @@ for (i in 1:length(file.names)) ## for object(i) in 1 through length of file.nam
     Mean_Age = mean(clin_data_df$AGE,na.rm = TRUE)
     Min_Age = min(clin_data_df$AGE,na.rm = TRUE)
     Max_Age = max(clin_data_df$AGE,na.rm = TRUE)
+    
+    # Append to dataframe above the median_younger/median_older columns 
+    #  this would be samples < median age , sample > median age
+    # same this for the mean_younger, mean_older
     Medi_Y = nrow(clin_data_df[which(clin_data_df$AGE < Median_Age),])
     Medi_O = nrow(clin_data_df[which(clin_data_df$AGE > Median_Age),])
     Mean_Y = nrow(clin_data_df[which(clin_data_df$AGE < Mean_Age),])
     Mean_O = nrow(clin_data_df[which(clin_data_df$AGE > Mean_Age),])
-    TotalNumberCases =
+    TotalNumberCases =nrow(clin_data_df)
     
+    clin_data_df$Median_Classification = ifelse(clin_data_df$AGE > Median_Age ,"Old_Median","Young_Median")
+    clin_data_df$Mean_Classification = ifelse(clin_data_df$AGE > Mean_Age , "Old_Mean","Young_Mean")
+    
+    
+    if(Median_Age > 60){
+      clin_data_df$CancerAgeMedianCategory = "Later-Life"
+    }
+    else {
+      clin_data_df$CancerAgeMedianCategory = "Younger-Life"
+      
+    }
     # Compute the median and mean for each cancer type , the mix , max 
     # also use a loop to do this by going through the list structure
     # this should create a new dataframe summarized ( you did this manually in the excel originally but please execute same in code below)
@@ -55,11 +71,50 @@ for (i in 1:length(file.names)) ## for object(i) in 1 through length of file.nam
 print(All_CancerData) 
 print(AgeDistribution_Agegroup) 
 
+### Merge Ages across all cancers ##
+## Mostly needed for visualization ##
+Age_OnyCT= list()
+for ( EachCT in 1:length(All_CancerDataClinicalData)){
+  name_CT = names(All_CancerDataClinicalData)[[EachCT]]
+  print(name_CT)
+  selCT = All_CancerDataClinicalData[[name_CT]]
+  selCT = selCT[,c("CASE_ID","AGE","CANCER_TYPE","Median_Classification","Mean_Classification","CancerAgeMedianCategory")]
+  selCT$TCGA_CancerCode = name_CT
+  Age_OnyCT[[name_CT]] = selCT
+}
+
+Age_OnyCT.df= rbindlist(Age_OnyCT)
+Age_OnyCT.df=na.omit(Age_OnyCT.df)
+
+ggviolin(Age_OnyCT.df,x = 'TCGA_CancerCode',y= 'AGE' ,fill = 'TCGA_CancerCode',
+          order = Summarized_Ages.AllCancers$CancerType,add = 'jitter')+ geom_hline(yintercept = 60,color="red")
 
 
-# Append to dataframe above the median_younger/median_older columns 
-#  this would be samples < median age , sample > median age
-# same this for the mean_younger, mean_older
+Summarized_Ages.AllCancers = Summarized_Ages.AllCancers[order(Summarized_Ages.AllCancers$Median,decreasing = TRUE),]
+ggboxplot(Age_OnyCT.df,x = 'TCGA_CancerCode',y= 'AGE' ,
+          fill = 'CancerAgeMedianCategory',palette = 'jco',
+         order = Summarized_Ages.AllCancers$CancerType)+
+         #add = 'jitter' 
+  geom_hline(yintercept = 60,color="red")
 
 
-#you should end up with 2 object here a list object for the clinical table and dataframe summary to determine the group distributions
+# Comparing Mean Age across all cancers
+pdf('Comparison_MeanAge_AcrossAllCancersBoxplot.pdf')
+compare_stat = list(c("Young_Mean","Old_Mean"))
+print(ggboxplot(Age_OnyCT.df,x = 'Mean_Classification',y= 'AGE' ,
+          fill = 'Mean_Classification',palette = 'jco')+
+  stat_compare_means(comparisons = compare_stat,method = "wilcox"))
+dev.off()
+
+pdf('Comparison_MedianAge_AcrossAllCancersBoxplot.pdf')
+compare_stat = list(c("Young_Median","Old_Median"))
+print(ggboxplot(Age_OnyCT.df,x = 'Median_Classification',y= 'AGE' ,
+                fill = 'Median_Classification',palette = 'jco')+
+        stat_compare_means(comparisons = compare_stat,method = "wilcox"))
+dev.off()
+
+
+
+#you should end up with 2 object here a list object for the
+#clinical table and dataframe summary to determine the group distributions
+
