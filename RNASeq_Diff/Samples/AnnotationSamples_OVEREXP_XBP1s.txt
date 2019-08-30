@@ -1,7 +1,0 @@
-Sample	Classification	Source	ID
-Sample_41.X3_S26	X	Sample_41	X_Sample_41
-Sample_41.X2_S25	X	Sample_41	X_Sample_41
-Sample_41.X1_S24	X	Sample_41	X_Sample_41
-Sample_41.C3_S23	C	Sample_41	C_Sample_41
-Sample_41.C2_S22	C	Sample_41	C_Sample_41
-Sample_41.C1_S21	C	Sample_41	C_Sample_41
