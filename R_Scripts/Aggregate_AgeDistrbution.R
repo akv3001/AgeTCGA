@@ -113,6 +113,26 @@ print(ggboxplot(Age_OnyCT.df,x = 'Median_Classification',y= 'AGE' ,
         stat_compare_means(comparisons = compare_stat,method = "wilcox"))
 dev.off()
 
+## create new excel file from df Summarized_Ages.AllCancers 
+library("openxlsx")
+write.xlsx(Summarized_Ages.AllCancers, file = "Age_CancerType_Summary.xlsx", colNames = TRUE, borders = "columns")
+
+## Choose Top 5 younger age Cancer Types by (median age) create new DF ##create new pdf & excel file with Top 5 young age CT
+young_CT <- head(Summarized_Ages.AllCancers[order(Summarized_Ages.AllCancers$Median, decreasing= F),], n = 5)
+pdf("younger5_CT.pdf")
+write.xlsx(young_CT, file = "younger5_CT.xlsx", colNames = TRUE, borders = "columns")
+dev.off()
+
+## Choose Top 5 older age Cancer Types by (median age) create new DF ##create new pdf & excel file with Top 5 older age CT
+older_CT <- head(Summarized_Ages.AllCancers[order(Summarized_Ages.AllCancers$Median, decreasing= T),], n = 5)
+pdf("younger5_CT.pdf")
+write.xlsx(older_CT, file = "older5_CT.xlsx", colNames = TRUE, borders = "columns")
+dev.off()
+
+############################Test plot################ 
+mdold <- Summarized_Ages.AllCancers$Median_Old 
+mdyoung <- Summarized_Ages.AllCancers$Median_Younger
+qplot(mdold, mdyoung, data=Summarized_Ages.AllCancers, color= CancerType) 
 
 
 #you should end up with 2 object here a list object for the
