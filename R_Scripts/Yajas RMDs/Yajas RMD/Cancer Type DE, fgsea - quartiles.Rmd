@@ -1,0 +1,270 @@
+---
+title: "Cancer Type DE Heatmap"
+author: "Yajas"
+date: "10/9/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+```
+
+## Load packages and data
+
+```{r cars, message=FALSE, warning=FALSE}
+library(pheatmap)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(reshape2)
+library(tidyverse)
+library(limma)
+library(edgeR)
+library(TCGAutils)
+library(biomaRt)
+library(org.Hs.eg.db)
+library(ggrepel)
+library(fgsea)
+library(gridExtra)
+library(fgsea)
+library(pheatmap)
+library(org.Hs.eg.db)
+load("~/Documents/Elemento/AgeTCGA-master/DATA/cBioportal_Survival_Data/age_metadata.RData")
+load("~/Documents/Elemento/AgeTCGA-master/DATA/NewTCGAcounts/Full Matrix.RData")
+pathways.hallmark <- gmtPathways("~/Documents/Elemento/AgeTCGA-master/DATA/GSEA_pathways/h.all.v7.0.symbols.gmt")
+```
+
+## Custom Functions  
+
+The limma function errors out because of `<<-`.  I've used the same code in the DE loop later on.  
+
+``` {r custom_functions, message=FALSE, warning=FALSE}
+# Create_Design<-function(input,condition,comparison){
+#   library("limma")
+#   # print(condition)
+#   input<- as.data.frame(input)
+#   colnames(input)<-c("Samples","target")
+#   print(head(input))
+#   input$target <- as.matrix(input$target)
+#   design <<- model.matrix(~0+ unlist(input$target))
+#   colnames(design) <<- condition
+#   print(head(design))
+#   print(as.character(comparison))
+#   contmatrix <<- makeContrasts(as.character(comparison),levels=design)
+# }
+# CallLimma<-function(Data,design,contrastMatrix){ 
+#   suppressMessages(library(limma))
+#   suppressMessages(library(edgeR))
+#   print(dim(Data))
+#   cutoff <- 0.1*ncol(Data)
+#   Data<-Data[which(rowSums(cpm(Data)> cutoff) >= 2) ,]
+#   print(dim(Data))
+#   Data.voom<- voom(Data,plot=FALSE)
+#   Voom_output <<- Data.voom
+#   fit<- lmFit(Data.voom,design)
+#   fit2<<- contrasts.fit(fit,contrastMatrix)
+#   fit2<<-eBayes(fit2)
+#   return(topTable(fit2,n=Inf))
+# }
+# normalizemm <- function(x)
+# {
+#   return((x- min(x)) /(max(x)-min(x)))
+# }
+# save_pheatmap_png <- function(x, filename, width=6000, height=4000, res = 500) {
+#   png(filename, width = width, height = height, res = res)
+#   grid::grid.newpage()
+#   grid::grid.draw(x$gtable)
+#   dev.off()
+```
+
+## Match datasets
+
+Make sure that the count data and age metadata have the same subject IDs and that they match up.  
+
+```{r unify_data, message=FALSE,warning=FALSE}
+filtered_counts <- RNAseq_counts
+
+## only look at primary solid tumors
+filtered_counts <- filtered_counts[ ,(TCGAbiospec(colnames(filtered_counts))$sample_definition == "Primary Solid Tumor" |
+                                      TCGAbiospec(colnames(filtered_counts))$sample_definition == "Primary Blood Derived Cancer - Peripheral Blood")]
+
+## there are duplicate case IDs. remove them
+which(duplicated(TCGAbiospec(colnames(filtered_counts))$submitter_id))
+filtered_counts <- filtered_counts[,-c(which(duplicated(TCGAbiospec(colnames(filtered_counts))$submitter_id)))]
+
+## making sure both datasets have the same case id format
+colnames(filtered_counts) <- substr(colnames(filtered_counts), start = 1, stop = 15)
+
+## remove CASE ID factors from age metadata
+Age_OnyCT.meta$CASE_ID <- as.character(Age_OnyCT.meta$CASE_ID)
+
+## selecting case IDs common to both datasets and discarding the rest
+common_cases <- intersect(colnames(filtered_counts), Age_OnyCT.meta$CASE_ID)
+filtered_age <- Age_OnyCT.meta[Age_OnyCT.meta$CASE_ID %in% common_cases,]
+filtered_counts <- filtered_counts[,colnames(filtered_counts) %in% common_cases]
+
+## sorting case IDs
+filtered_age <- filtered_age[order(filtered_age$CASE_ID),]
+filtered_counts <- filtered_counts[,order(colnames(filtered_counts))]
+
+rm("RNAseq_counts")
+```
+
+## Create results DFs
+
+Create empty dataframes to store the results.
+
+```{r resultsDF, warning=FALSE,message=FALSE}
+## unique 3 letter codes
+cancer_types <- levels(factor(filtered_age$TCGA_CancerCode))
+
+# This dataframe has the DE results
+resultsDF_RNA <- as.data.frame(matrix(nrow = length(cancer_types), ncol = 10))
+colnames(resultsDF_RNA) <- c("Q1_n","Q4_n","no_of_total_genes_tested", "no_of_sig_genes","sig_gene_fraction","Q1_min_age","Q1_max_age","Q4_min_age","Q4_max_age", "Cancer_Code")
+rownames(resultsDF_RNA) <- cancer_types
+
+# This dataframe has the FGSEA results
+NES_DF <- as.data.frame(matrix(nrow = length(pathways.hallmark),
+                               ncol = length(cancer_types)), 
+                        row.names = names(pathways.hallmark))
+colnames(NES_DF) <- cancer_types
+NES_FDR_DF <- NES_DF
+```
+
+## DE Loop  
+
+This is where the heavy lifting happens. I loop through all cancer types and compute DE for each cancer type.  
+The steps in the loop are:  
+\n  
+* Match count data with age metadata  
+* DE using limma. Check the design and contrast matrices  
+* Convert ENSEML IDs of the DE results to gene names  
+* Run FGSEA on the DE results. I did not filter significantly DE genes for FGSEA  
+* Write the results dataframes as you loop  
+
+```{r DE, warning=FALSE,message=FALSE}
+## unique 3 letter codes
+cancer_types <- levels(factor(filtered_age$TCGA_CancerCode))
+for (i in 1:length(cancer_types)) {
+  
+  #### create a subset of the age and rna seq datasets
+  #### select the current cancer type subjects which have which are either <Q1 or>Q3 wrt age
+  age_subset <- filtered_age[which(filtered_age$TCGA_CancerCode == cancer_types[i] & filtered_age$Subtype_Quartile != "Q2-Q3"), 
+                             c("CASE_ID","Subtype_Quartile","AGE")]
+  rna_subset <- filtered_counts[,which(colnames(filtered_counts) %in% age_subset$CASE_ID)]
+  
+  
+  ### get min and max ages for each quartile
+  age_subset$AGE <- as.numeric(as.character(age_subset$AGE))
+  resultsDF_RNA$Q1_min_age[i] <- min(as.numeric(age_subset$AGE[which(age_subset$Subtype_Quartile == "Q1")]))
+  resultsDF_RNA$Q1_max_age[i] <- max(as.numeric(age_subset$AGE[which(age_subset$Subtype_Quartile == "Q1")]))
+  resultsDF_RNA$Q4_min_age[i] <- min(as.numeric(age_subset$AGE[which(age_subset$Subtype_Quartile == "Q4")]))
+  resultsDF_RNA$Q4_max_age[i] <- max(as.numeric(age_subset$AGE[which(age_subset$Subtype_Quartile == "Q4")]))
+  
+  
+  #### limma
+  input <- as.data.frame(age_subset[,c("CASE_ID","Subtype_Quartile")])
+  input$Subtype_Quartile <- factor(input$Subtype_Quartile, levels = c("Q4","Q1"))
+  condition <- c("Q4","Q1")
+  comparison <- "Q4-Q1"
+  design <- model.matrix(~0+ input$Subtype_Quartile)
+  colnames(design) <- condition
+  contmatrix <- makeContrasts(as.character(comparison),levels=design)
+  resultsDF_RNA$Q4_n[i] <- table(design)[1]
+  resultsDF_RNA$Q1_n[i] <- table(design)[2]
+  
+  Count_input <- rna_subset
+  Count_input<-Count_input[which(rowSums(cpm(Count_input)> 2) >= 2) ,]
+  resultsDF_RNA$no_of_total_genes_tested[i] <- nrow(rna_subset)
+  print(dim(Count_input))
+  Data.voom <- voom(Count_input,plot=FALSE)
+  Voom_output <- Data.voom
+  fit <- lmFit(Data.voom,design)
+  fit2 <- contrasts.fit(fit,contmatrix)
+  fit2 <-eBayes(fit2)
+  tt <- topTable(fit2,n=Inf)
+  resultsDF_RNA$no_of_sig_genes[i] <- length(which(tt$adj.P.Val<0.05))
+  resultsDF_RNA$sig_gene_fraction[i] <- resultsDF_RNA$no_of_sig_genes[i]/resultsDF_RNA$no_of_total_genes_tested[i]
+  
+  # Run fgsea
+  set.seed(2019)
+  tt[,7] <- mapIds(org.Hs.eg.db, keys = rownames(tt), keytype = "ENSEMBL", column="SYMBOL", "first")
+  tt <- na.omit(tt)
+  tt <- tt[-which(duplicated(tt$V7)),]
+  rownames(tt) <- tt$V7
+  tt <- tt[order(tt$t, decreasing = T),]
+  ranks_TCGA <- tt$t
+  names(ranks_TCGA) <- rownames(tt)
+  fgseaRes_TCGA <- fgsea(pathways=pathways.hallmark, stats=ranks_TCGA, nperm=1000)
+  NES_FDR_DF[,i] <- fgseaRes_TCGA$padj
+  NES_DF[,i] <- ifelse(fgseaRes_TCGA$padj<0.05, fgseaRes_TCGA$NES,0)
+  
+  resultsDF_RNA$Cancer_Code[i] <- cancer_types[i]
+}
+
+
+```
+
+## Inspect results
+
+```{r inspect_results, warning=FALSE,message=FALSE}
+head(resultsDF_RNA)
+rownames(NES_DF) <- substring(rownames(NES_DF),10)
+head(NES_DF)
+```
+
+## DE Genes per cancer type  
+
+Identify cancer types that have at least 5% differentially expressed genes between young and old.  
+
+```{r deggplot, warning=FALSE,message=FALSE}
+ggbarplot(resultsDF_RNA, x = 'Cancer_Code', y = 'sig_gene_fraction', 
+          sort.val = "asc",x.text.angle = 90, fill = 'dodgerblue2',
+          xlab = "TCGA Cancer Code", ylab = "Fraction of DE ENSEMBL genes")+ 
+  geom_hline(yintercept=0.05, color = "firebrick2") +
+  scale_y_continuous(labels = function(x) paste0(x*100, "%"))
+```
+
+## Heatmap  
+
+Look for pathways that are conserved across multiple cancer types as people age.  
+
+```{r heatmap, message=FALSE,warning=FALSE}
+
+# Annotation column which has differential expression
+col_anno <- data.frame(resultsDF_RNA[,"no_of_sig_genes"])
+rownames(col_anno) <- rownames(resultsDF_RNA)
+colnames(col_anno) <- "Significant DEG"
+col_anno$`Significant DEG` <- as.numeric(as.character(col_anno$`Significant DEG`))
+
+
+# Annotate immune pathways
+hallmark_immune <- rep("No", 50)
+hallmark_immune[c(1,7,18,19,23,31,42,43,46)] <- "Yes"
+hallmark_immune <- factor(hallmark_immune[which(rowSums(NES_DF != 0) > 2)], levels = c("Yes","No"))
+
+# Keep rows that have more than two altered pathways
+# Keep cancer types that have at least one altered pathway
+NES_DF <- NES_DF[which(rowSums(NES_DF != 0) > 2),which(colSums(abs(NES_DF)) != 0)]
+col_anno <- data.frame(col_anno[colnames(NES_DF)[which(colSums(abs(NES_DF)) != 0)],],
+                       row.names = colnames(NES_DF)[which(colSums(abs(NES_DF)) != 0)])
+colnames(col_anno) <- "Significant DEG"
+col_anno$`Significant DEG` <- factor(ifelse(col_anno$`Significant DEG` > 0, "Yes", "No"), 
+                                     levels = c("Yes","No"))
+
+NES_DF[,(ncol(NES_DF)+1)] <- hallmark_immune
+colnames(NES_DF)[ncol(NES_DF)] <- "Immune?"
+NES_DF$`Immune?` <- factor(NES_DF$`Immune?`, levels = c("Yes","No"))
+
+anno_rows <- data.frame(NES_DF$`Immune?`,
+                        row.names = rownames(NES_DF))
+colnames(anno_rows) <- "Immune?"
+
+pheatmap(NES_DF[,1:ncol(NES_DF)-1], scale = "none",main = "Q4-Q1 Hallmark GSEA (padj < 0.05)",
+         annotation_row = anno_rows,
+         annotation_col = col_anno, cutree_rows = 4, width = 4000, height = 4000,
+         fontsize_row = 4, fontsize_col = 6)
+```
+
+

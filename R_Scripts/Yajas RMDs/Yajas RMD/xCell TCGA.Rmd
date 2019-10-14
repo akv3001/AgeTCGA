@@ -1,0 +1,202 @@
+---
+title: "xCell TCGA Analysis"
+date: "September 20, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Packages
+
+```{r load packages, warning=FALSE, message=FALSE}
+library(pheatmap)
+library(gplots)
+library(viridis)
+library(dplyr)
+library(network)
+library(ggplot2)
+library(ggpubr)
+library(reshape2)
+library(tidyverse)
+```
+
+## Quartiles 
+The xCell data is supplemental data for their paper and can be accessed on <https://genomebiology.biomedcentral.com/articles/10.1186/s13059-017-1349-1>.  
+The xCell case IDs need to be formatted to match the age metadata file.  
+
+```{r xCell data}
+load("~/Documents/Elemento/AgeTCGA-master/DATA/cBioportal_Survival_Data/age_metadata.RData")
+xcell_data <- read.csv("/Users/Yajas/Documents/Elemento/AgeTCGA-master/DATA/Deconvolution and ssGSEA/xCell_TCGA_RSEM.txt", 
+                       stringsAsFactors = F, sep = "\t", header = T)
+colnames(xcell_data) <-  gsub('\\.', '-', colnames(xcell_data))
+filtered_meta <- Age_OnyCT.meta[which(Age_OnyCT.meta$CASE_ID %in% colnames(xcell_data)),]
+```
+
+Load the metadata associated with xCell. This can be found with the paper.  
+Cell types will serve as column names in the analysis. Additional metadata can be used as needed.  
+
+```` {r xCell metadata}
+cell_types <- c("aDC","Adipocytes","Astrocytes","B-cells","Basophils",
+                "CD4+ memory T-cells","CD4+ naive T-cells","CD4+ T-cells",
+                "CD4+ Tcm","CD4+ Tem","CD8+ naive T-cells","CD8+ T-cells",
+                "CD8+ Tcm","CD8+ Tem","cDC","Chondrocytes","Class-switched memory B-cells",
+                "CLP","CMP","DC","Endothelial cells","Eosinophils","Epithelial cells",
+                "Erythrocytes","Fibroblasts","GMP","Hepatocytes","HSC","iDC","Keratinocytes",
+                "ly Endothelial cells","Macrophages","Macrophages M1","Macrophages M2",
+                "Mast cells","Megakaryocytes","Melanocytes","Memory B-cells","MEP","Mesangial cells",
+                "Monocytes","MPP","MSC","mv Endothelial cells","Myocytes","naive B-cells",
+                "Neurons","Neutrophils","NK cells","NKT","Osteoblast","pDC","Pericytes",
+                "Plasma cells","Platelets","Preadipocytes","pro B-cells","Sebocytes",
+                "Skeletal muscle cells","Smooth muscle cells","Tgd cells","Th1 cells","Th2 cells","Tregs")
+
+##some more information to use if neededd
+xcell_metadata <- as.data.frame(cbind(c("aDC","Adipocytes","Astrocytes","B-cells","Basophils","CD4+ memory T-cells","CD4+ naive T-cells","CD4+ T-cells","CD4+ Tcm","CD4+ Tem","CD8+ naive T-cells","CD8+ T-cells","CD8+ Tcm","CD8+ Tem","cDC","Chondrocytes","Class-switched memory B-cells","CLP","CMP","DC","Endothelial cells","Eosinophils","Epithelial cells","Erythrocytes","Fibroblasts","GMP","Hepatocytes","HSC","iDC","Keratinocytes","ly Endothelial cells","Macrophages","Macrophages M1","Macrophages M2","Mast cells","Megakaryocytes","Melanocytes","Memory B-cells","MEP","Mesangial cells","Monocytes","MPP","MSC","mv Endothelial cells","Myocytes","naive B-cells","Neurons","Neutrophils","NK cells","NKT","Osteoblast","pDC","Pericytes","Plasma cells","Platelets","Preadipocytes","pro B-cells","Sebocytes","Skeletal muscle cells","Smooth muscle cells","Tgd cells","Th1 cells","Th2 cells","Tregs"),
+                                c("Non-lymphocytes","Non-Hematopoietic","Non-Hematopoietic","Lymphocytes","Non-lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes","Non-lymphocytes","Non-Hematopoietic","Lymphocytes","HSC","HSC","Non-lymphocytes","Non-Hematopoietic","Non-lymphocytes","Non-Hematopoietic","HSC","Non-Hematopoietic","HSC","Non-Hematopoietic","HSC","Non-lymphocytes","Non-Hematopoietic","Non-Hematopoietic","Non-lymphocytes","Non-lymphocytes","Non-lymphocytes","Non-lymphocytes","HSC","Non-Hematopoietic","Lymphocytes","HSC","Non-Hematopoietic","Non-lymphocytes","HSC","Non-Hematopoietic","Non-Hematopoietic","Non-Hematopoietic","Lymphocytes","Non-Hematopoietic","Non-lymphocytes","Lymphocytes","Lymphocytes","Non-Hematopoietic","Non-lymphocytes","Non-Hematopoietic","Lymphocytes","Non-lymphocytes","Non-Hematopoietic","Lymphocytes","Non-Hematopoietic","Non-Hematopoietic","Non-Hematopoietic","Lymphocytes","Lymphocytes","Lymphocytes","Lymphocytes"),
+                                c("Myeloid","Stroma","Epithelial","Lymphoid","Myeloid","Lymphoid","Lymphoid","Lymphoid","Lymphoid","Lymphoid","Lymphoid","Lymphoid","Lymphoid","Lymphoid","Myeloid","Stroma","Lymphoid","HSC","HSC","Myeloid","Stroma","Myeloid","Epithelial","HSC","Stroma","HSC","Epithelial","HSC","Myeloid","Epithelial","Stroma","Myeloid","Myeloid","Myeloid","Myeloid","HSC","Epithelial","Lymphoid","HSC","Stroma","Myeloid","HSC","Stroma","Stroma","Stroma","Lymphoid","Epithelial","Myeloid","Lymphoid","Lymphoid","Stroma","Myeloid","Stroma","Lymphoid","HSC","Stroma","Lymphoid","Epithelial","Stroma","Stroma","Lymphoid","Lymphoid","Lymphoid","Lymphoid")), stringsAsFactors = F)
+````
+  
+Next, look at all the subtypes and create data frames to store our results.  
+The resulting data frames are for p val, fdr and comparing means.  
+
+```` {r create dataframe for results}
+#### Look at subtypes
+#levels(filtered_meta$TCGA_CancerCode)
+
+## create data frames to store p values
+results_df.p <- data.frame(matrix(ncol = 65, nrow = length(levels(factor(filtered_meta$TCGA_CancerCode)))))
+results_df.p[,1] <- levels(factor(filtered_meta$TCGA_CancerCode))
+results_df.fdr <- data.frame(matrix(ncol = 65, nrow = length(levels(factor(filtered_meta$TCGA_CancerCode)))))
+results_df.fdr[,1] <- levels(factor(filtered_meta$TCGA_CancerCode))
+results_df.mean <- data.frame(matrix(ncol = 65, nrow = length(levels(factor(filtered_meta$TCGA_CancerCode)))))
+results_df.mean[,1] <- levels(factor(filtered_meta$TCGA_CancerCode))
+````
+  
+The next chunk is where the heavy lifting happens.  
+Using nested loops, loop through the cancer types (loop i) and xCell cell types (loop j).    
+\n
+The following general steps are performed within loop i:  
+* Filter age-info and xCell data so that they contain data for a single cancer type  
+* Sort the case IDs in each data frame so that they match up  
+* Merge these subsets to create a single data frame  
+* Create vectors for the results (p value, fdr etc)  
+* Loop through the merged dataframe to compare cell types across subtype based age quartiles  
+* Compare with the Wilcox test. Get p values, fdr values and identify the group which has a higher mean  
+* Add the result values to the results dataframes  
+* Rename row and column names of the result dataframes 
+* Repeat with a few modifications for tertile based age stratification  
+
+````{r loop for cell type comparisions - quartiles, message=FALSE, warning=FALSE}
+  
+for (i in 1:length(levels(factor(filtered_meta$TCGA_CancerCode)))) {
+  
+  ## select case ids present in both datasets
+  ## sort by case ids so everything matches up
+  new_filtered_meta <- filtered_meta[filtered_meta$TCGA_CancerCode == levels(factor(filtered_meta$TCGA_CancerCode))[i],]
+  filtered_xcell <- xcell_data[,which(colnames(xcell_data) %in% new_filtered_meta$CASE_ID)]
+  rownames(filtered_xcell) <- cell_types
+  filtered_xcell <- filtered_xcell[,sort(colnames(filtered_xcell))]
+  new_filtered_meta <- new_filtered_meta[order(new_filtered_meta$CASE_ID),]
+  
+  ## create a unified data frame
+  compare_df <- data.frame(new_filtered_meta,t(filtered_xcell))
+  
+  ## setup for loop
+  pval_list <- c()
+  Q1mean.list <- c()
+  Q3mean.list <- c()
+  meanComp.list <- c()
+  
+  ## loop through each cell type and get p values
+  ## loop from 14, look at colnames(compare_df)
+  for (j in 14:ncol(compare_df)) {
+    pval_list[j] <- wilcox.test(compare_df[which(compare_df$Subtype_Quartile == "Q1"),j],
+                                compare_df[which(compare_df$Subtype_Quartile == "Q4"),j])$p.value
+    Q1mean.list[j] <- mean(compare_df[which(compare_df$Subtype_Quartile == "Q1"),j])
+    Q3mean.list[j] <- mean(compare_df[which(compare_df$Subtype_Quartile == "Q4"),j])
+    meanComp.list[j] <- ifelse(Q1mean.list[j] > Q3mean.list[j], "Q1", 
+                               ifelse(Q3mean.list[j] > Q1mean.list[j], "Q4", "Q1 =Q4"))
+  }
+  
+  ## create a data frame for p, fdr, etc
+  pval_list <- pval_list[-c(1:13)]
+  fdr_list <- p.adjust(pval_list, method = "fdr")
+  mean_list <- meanComp.list[-c(1:13)]
+  results_df.p[i,2:65] <- pval_list
+  results_df.fdr[i,2:65] <- fdr_list
+  results_df.mean[i,2:65] <- mean_list
+}
+
+colnames(results_df.p) <- c("TCGA_CancerCode", rownames(filtered_xcell))
+colnames(results_df.fdr) <- c("TCGA_CancerCode", rownames(filtered_xcell))
+colnames(results_df.mean) <- c("TCGA_CancerCode", rownames(filtered_xcell))
+rownames(results_df.p) <- results_df.p[,1]
+rownames(results_df.fdr) <- results_df.fdr[,1]
+rownames(results_df.mean) <- results_df.mean[,1]
+````
+
+We can now visualize these results with heatmaps to get a sense of whats going on  
+
+````{r heatmaps}
+pheatmap(as.matrix(t(results_df.p[2:ncol(results_df.p)])), main = "p")
+pheatmap(as.matrix(t(results_df.fdr[2:ncol(results_df.fdr)])), main = "fdr")
+````
+
+Since a lot of these data seem significant, let's create a bubble plot for all results that are fdr < 0.05  
+
+````{r bubblplot, warning=FALSE}
+dat0 =cbind(melt(results_df.mean,'TCGA_CancerCode'), melt(results_df.p,'TCGA_CancerCode')[,3], melt(results_df.fdr,'TCGA_CancerCode')[,3])
+# dat0[,6] <- rep(xcell_metadata$V3, each=32)
+colnames(dat0) <- c("TCGA_CancerCode", "variable", "Enrichment", "p.val", "fdr")
+# levels_for_subset <- levels(factor(dat0$variable))
+dat1 <- dat0[which(dat0$fdr<0.05),]    ## only selecting significant values
+# dat0$variable <- factor(dat0$variable, levels = levels_for_subset)
+
+
+cell_cols <- c("#A6D854","black","black","#66C2A5","#A6D854","#66C2A5","#66C2A5","#66C2A5","#66C2A5","#66C2A5","#66C2A5","#66C2A5","#66C2A5","#66C2A5","#A6D854","black","#66C2A5","black","black","#A6D854","black","#A6D854","black","black","black","black","black","black","#A6D854","black","black","#A6D854","#A6D854","#A6D854","#A6D854","black","black","#66C2A5","black","black","#A6D854","black","black","black","black","#66C2A5","black","#A6D854","#66C2A5","#66C2A5","black","#A6D854","black","#66C2A5","black","black","#66C2A5","black","black","black","#66C2A5","#66C2A5","#66C2A5","#66C2A5")
+cell_cols <- cell_cols[which(unique(as.character(dat0$variable)) %in% unique(as.character(dat1$variable)))]
+
+
+ggplot(data = dat1, aes(x = TCGA_CancerCode, y = variable)) +
+  geom_point(aes(color = -log10(p.val), shape = Enrichment, size = -log10(fdr))) +
+  ggtitle("Cancer Type Quartile-based Age Stratification - xCell")+
+  xlab("TCGA Cancer Code") +
+  labs(size = expression(paste("-log"[10], " FDR")), color = expression(paste("-log"[10], " p.value"))) + 
+  ylab("Cell Type")+
+  theme(axis.text.y = element_text(hjust = 1,
+                                   colour = cell_cols))
+
+lymphoid_xCell <- dat1[which(dat1$variable %in% xcell_metadata$V1[which(xcell_metadata$V3 == "Lymphoid")]),]
+myeloid_xCell <- dat1[which(dat1$variable %in% xcell_metadata$V1[which(xcell_metadata$V3 == "Myeloid")]),]
+
+
+# ggplot(data = myeloid_xCell, aes(x = TCGA_CancerCode, y = variable)) +
+#   geom_point(aes(color = -log10(p.val), shape = Enrichment, size = -log10(fdr))) +
+#   ggtitle("xCell - Myeloid Cells Q4-Q1")+
+#   xlab("TCGA Cancer Code") +
+#   labs(size = expression(paste("-log"[10], " FDR")), color = expression(paste("-log"[10], " p.value"))) + 
+#   ylab("Cell Type")
+# 
+# ggplot(data = lymphoid_xCell, aes(x = TCGA_CancerCode, y = variable)) +
+#   geom_point(aes(color = -log10(p.val), shape = Enrichment, size = -log10(fdr))) +
+#   ggtitle("xCell - Lymphoid Cells Q4-Q1")+
+#   xlab("TCGA Cancer Code") +
+#   labs(size = expression(paste("-log"[10], " FDR")), color = expression(paste("-log"[10], " p.value"))) + 
+#   ylab("Cell Type")
+
+
+ggarrange(ggplot(data = lymphoid_xCell, aes(x = TCGA_CancerCode, y = variable)) +
+            geom_point(aes(color = Enrichment, size = -log10(fdr))) +
+            ggtitle("Lymphoid Cells")+
+            xlab("TCGA Cancer Code") +
+            labs(size = expression(paste("-log"[10], " FDR")), color = "Enrichment") + 
+            ylab("Cell Type") + theme(axis.text.x=element_text(angle=45, hjust=1)),
+          ggplot(data = myeloid_xCell, aes(x = TCGA_CancerCode, y = variable)) +
+            geom_point(aes(color = Enrichment, size = -log10(fdr))) +
+            ggtitle("Myeloid Cells")+
+            xlab("TCGA Cancer Code") +
+            labs(size = expression(paste("-log"[10], " FDR")), color = expression(paste("-log"[10], " p.value"))) + 
+            ylab("Cell Type")+ theme(axis.text.x=element_text(angle=45, hjust=1)),
+          common.legend = TRUE,legend = "right", widths = c(7.7,6.2))
+
+````

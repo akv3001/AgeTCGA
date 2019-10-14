@@ -1,0 +1,155 @@
+---
+title: "PanCan DE Figs"
+author: "Yajas"
+date: "10/7/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview + Packages
+
+The goal is to find genes differentially expressed between young old subjects from TCGA data after factoring in cancer type. I will use Pan-Cancer quartiles to define age groups and compare Q4 with Q1.  
+Since some cancers are only found in young/old people, I will add cancer type to the design matrix.
+
+```{r load, message=FALSE,warning=FALSE}
+library(TCGAutils)
+library(limma)
+library(edgeR)
+library(fgsea)
+library(dplyr)
+library(tibble)
+library(org.Hs.eg.db)
+library(EnhancedVolcano)
+load("~/Documents/Elemento/AgeTCGA-master/DATA/cBioportal_Survival_Data/age_metadata.RData")
+load("~/Documents/Elemento/AgeTCGA-master/DATA/NewTCGAcounts/Full Matrix.RData")
+```
+
+## Unifying metadata with count data
+
+This code block essentially filters out everything that is not required for the analysis:  
+* Keep primary oslid tumors
+* Match case IDs across both datasets
+* Remove case IDs which are in the second or third pan-cancer age quartile
+
+```{r preprocessing}
+filtered_counts <- RNAseq_counts
+## only look at primary solid tumors
+filtered_counts <- filtered_counts[ ,(TCGAbiospec(colnames(filtered_counts))$sample_definition == "Primary Solid Tumor")]
+
+## there are duplicate case IDs. remove them
+which(duplicated(TCGAbiospec(colnames(filtered_counts))$submitter_id))
+filtered_counts <- filtered_counts[,-c(which(duplicated(TCGAbiospec(colnames(filtered_counts))$submitter_id)))]
+
+## making sure both datasets have the same case id format
+colnames(filtered_counts) <- substr(colnames(filtered_counts), start = 1, stop = 15)
+
+## remove CASE ID factors from age metadata
+Age_OnyCT.meta$CASE_ID <- as.character(Age_OnyCT.meta$CASE_ID)
+
+## keep pancan Q1 and Q4
+Age_OnyCT.meta <- Age_OnyCT.meta[Age_OnyCT.meta$PanCan_Quartile != "Q2-Q3",]
+
+## selecting case IDs common to both datasets and discarding the rest
+common_cases <- intersect(colnames(filtered_counts), Age_OnyCT.meta$CASE_ID)
+filtered_age <- Age_OnyCT.meta[Age_OnyCT.meta$CASE_ID %in% common_cases,]
+filtered_counts <- filtered_counts[,colnames(filtered_counts) %in% common_cases]
+
+## sorting case IDs
+filtered_age <- filtered_age[order(filtered_age$CASE_ID),]
+filtered_counts <- filtered_counts[,order(colnames(filtered_counts))]
+
+rm(RNAseq_counts)
+```
+
+
+## Differential Expression  
+
+Go through a limma pipeling to check for differentially expressed genes. The design and contrast matrix are key here. The design matrix columns are `quartile:cancer type`. The contrast matrix subtracts all `Q1` values from `Q4`. I have removed Q4.pcpg from the contrast matrix becaus of the error `coefficients not estimable`.  
+\n
+Check the design and matrices to make sure that directionality is not reversed.  
+
+```{r limma_DE}
+# This is metadata used to construct the design matrix
+input <- as.data.frame(filtered_age[,c("CASE_ID","PanCan_Quartile","TCGA_CancerCode")])
+input$TCGA_CancerCode <- factor(input$TCGA_CancerCode)
+input$PanCan_Quartile <- factor(input$PanCan_Quartile)
+
+# Check the number of samples per class. note that Q4.tgct has 0 samples
+table(input$PanCan_Quartile:input$TCGA_CancerCode)
+
+# Create design. Remove Q4.pcpg because it produces errors (coefficients not estimable)
+design <- model.matrix(~0+input$PanCan_Quartile:input$TCGA_CancerCode)
+colnames(design) <- gsub(":",".", names(table(input$PanCan_Quartile:input$TCGA_CancerCode)))
+design <- design[,-which(colnames(design) == "Q4.pcpg")]
+
+# Contrast matrix: Q4-Q1 essentially
+contmatrix <-  makeContrasts((paste(paste(colnames(design)[32:61], collapse = '+'), 
+                        paste(colnames(design)[1:31], collapse = '-'), sep = "-")),
+              levels = design)
+
+# Model fitting
+Count_input<-filtered_counts[which(rowSums(cpm(filtered_counts)> 1) >= 2) ,]
+rm(filtered_counts)
+Data.voom<- voom(Count_input,plot=FALSE)
+fit <- lmFit(Data.voom, design)
+fit.Age <- contrasts.fit(fit, contmatrix)
+final.fit.Age <- eBayes(fit.Age)
+tt <- topTable(final.fit.Age, n = Inf)
+print(head(tt))
+print(length(which(tt$adj.P.Val<0.05)))
+```
+
+## Volcano Plot  
+
+There's a lot of significant genes with very high logFC values. Not sure what to make of this, but here are the volcano plots.  
+
+```{r volcano1, echo=FALSE,warning=FALSE,message=FALSE}
+EnhancedVolcano(tt, "logFC", "adj.P.Val", lab = rownames(tt),
+                xlim = c(-50,50),
+                ylim = c(0,10),selectLab = NA)
+```
+  
+Focussing on the smaller changes. This volcano plot omits a lot of the data.
+
+```{r volcano2,echo=FALSE,warning=FALSE,message=FALSE}
+EnhancedVolcano(tt, "logFC", "adj.P.Val", 
+                lab = rownames(tt),selectLab = NA)
+```
+
+## FGSEA
+
+Looking at hallmark pathway enrichment
+
+```{r fgsea, message=FALSE,warning=FALSE}
+# Converting ENSEMBL to gene symbols
+tt2 <- tt
+tt2[,(ncol(tt2)+1)] <- mapIds(org.Hs.eg.db,
+                              keys=row.names(tt),
+                              column="SYMBOL",
+                              keytype="ENSEMBL",
+                              multiVals="first")
+tt2 <- tt2[-which(duplicated(tt2$V7)),]
+tt2 <- na.omit(tt2)
+rownames(tt2) <- tt2$V7
+tt2 <- tt2[order(tt2$t),]
+
+# Ranked t stat changes for fgsea
+ranks <- tt2$t
+names(ranks) <- rownames(tt2)
+
+# FGSEA
+set.seed(2019)
+pathways.hallmark <- gmtPathways("/Users/Yajas/Documents/Elemento/AgeTCGA-master/DATA/GSEA_pathways/h.all.v7.0.symbols.gmt")
+fgseaRes <- fgsea(pathways=pathways.hallmark, stats=ranks, nperm=1000)
+fgseaRes <- fgseaRes[rev(order(fgseaRes$NES)),]
+
+ggplot(fgseaRes, aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill=padj<0.05)) +
+  coord_flip() +
+  labs(x="Hallmark Pathways", y="Normalized Enrichment Score",
+       title="PanCan Q4-Q1: Hallmark Pathways") + 
+  theme_minimal()
+```
