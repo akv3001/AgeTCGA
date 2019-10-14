@@ -63,7 +63,7 @@ Age_OnyCT.df.Y <- cbind(Age_OnyCT.df,new_classification)    ## create a single D
 head(Age_OnyCT.df.Y)    ## inspect
 
 
-
+length(which(duplicated(Age_OnyCT.df.Y$CASE_ID)))
 
 
 ## classify subjects based on their age
@@ -100,12 +100,13 @@ head(new_classification)  ## inspect
 
 Age_OnyCT.df.Y <- cbind(Age_OnyCT.df.Y, new_classification)    ## create a single DF with all variables
 head(Age_OnyCT.df.Y)    ## inspect
+length(which(duplicated(Age_OnyCT.df.Y$CASE_ID)))
 
-##
-library(ggpubr)
-ggviolin(data = Age_OnyCT.df.Y, x = 'TCGA_CancerCode', y = 'AGE', add = 'jitter', 
-         color = c('PanCan_Last_Quartile'))
-
+ggboxplot(Age_OnyCT.df.Y,x = 'TCGA_CancerCode',y= 'AGE' ,
+          fill = 'CancerAgeMedianCategory',palette = 'jco',
+          order = Summarized_Ages.AllCancers$CancerType)+
+  #add = 'jitter' 
+  geom_hline(yintercept = 60,color="red")
 
 
 ## lines 53 and 90 show NA for the second rowname - why?
@@ -113,47 +114,85 @@ ggviolin(data = Age_OnyCT.df.Y, x = 'TCGA_CancerCode', y = 'AGE', add = 'jitter'
 ## Continue classifying subtypes to get a unified data frame
 
 ## input remains constant
-input <- as.data.frame(cbind(Age_OnyCT.df.Y$CASE_ID, 
-                             Age_OnyCT.df.Y$AGE, 
-                             Age_OnyCT.df.Y$CANCER_TYPE, 
-                             Age_OnyCT.df.Y$TCGA_CancerCode))
+input <- Age_OnyCT.df.Y[,c("CASE_ID", "AGE","CANCER_TYPE", "TCGA_CancerCode")]
 
+length(which(duplicated(input$CASE_ID)))
 ## merge quartile columns to one. similarly, tertiles and subtype quartiles....
-to_filter <- as.data.frame(cbind(Age_OnyCT.df.Y$Median_Classification,
-                     Age_OnyCT.df.Y$Mean_Classification,
-                     Age_OnyCT.df.Y$PanCan_First_Quartile,
-                     Age_OnyCT.df.Y$PanCan_Last_Quartile,
-                     Age_OnyCT.df.Y$PanCan_First_Tertile,
-                     Age_OnyCT.df.Y$PanCan_Last_Tertile,
-                     Age_OnyCT.df.Y$CancerAgeMedianCategory,
-                     Age_OnyCT.df.Y$Subtype_Mean_Classification,
-                     Age_OnyCT.df.Y$Subtype_Median_Classification,
-                     Age_OnyCT.df.Y$Subtype_First_Quartile,
-                     Age_OnyCT.df.Y$Subtype_Last_Quartile,
-                     Age_OnyCT.df.Y$Subtype_First_Tertile,
-                     Age_OnyCT.df.Y$Subtype_Last_Tertile))
+
+to_filter <- Age_OnyCT.df.Y[,c("Median_Classification",
+                               "Mean_Classification",
+                               "PanCan_First_Quartile",
+                               "PanCan_Last_Quartile",
+                               "PanCan_First_Tertile",
+                               "PanCan_Last_Tertile",
+                               "CancerAgeMedianCategory",
+                               "Subtype_Mean_Classification",
+                               "Subtype_Median_Classification",
+                               "Subtype_First_Quartile",
+                               "Subtype_Last_Quartile",
+                               "Subtype_First_Tertile",
+                               "Subtype_Last_Tertile")]
+
+# to_filter <- as.data.frame(cbind(Age_OnyCT.df.Y$Median_Classification,
+#                      Age_OnyCT.df.Y$Mean_Classification,
+#                      Age_OnyCT.df.Y$PanCan_First_Quartile,
+#                      Age_OnyCT.df.Y$PanCan_Last_Quartile,
+#                      Age_OnyCT.df.Y$PanCan_First_Tertile,
+#                      Age_OnyCT.df.Y$PanCan_Last_Tertile,
+#                      Age_OnyCT.df.Y$CancerAgeMedianCategory,
+#                      Age_OnyCT.df.Y$Subtype_Mean_Classification,
+#                      Age_OnyCT.df.Y$Subtype_Median_Classification,
+#                      Age_OnyCT.df.Y$Subtype_First_Quartile,
+#                      Age_OnyCT.df.Y$Subtype_Last_Quartile,
+#                      Age_OnyCT.df.Y$Subtype_First_Tertile,
+#                      Age_OnyCT.df.Y$Subtype_Last_Tertile))
 colnames(to_filter) <- c("Median_Classification", "Mean_Classification","PanCan_First_Quartile",
                          "PanCan_Last_Quartile","PanCan_First_Tertile","PanCan_Last_Tertile",
                          "CancerAgeMedianCategory","Subtype_Mean_Classification",
                          "Subtype_Median_Classification","Subtype_First_Quartile",
                          "Subtype_Last_Quartile","Subtype_First_Tertile","Subtype_Last_Tertile")
 
-## creating unified metadata
-for (i in 1:nrow(to_filter)) {
-  input[i,5] <- to_filter$Median_Classification[i]
-  input[i,6] <- to_filter$Mean_Classification[i]
-  input[i,7] <- ifelse(to_filter$PanCan_First_Quartile[i] == "Young_Q1", "Young_Q1", (ifelse(to_filter$PanCan_Last_Quartile[i] == "Old_Q3", "Old_Q3", "neither")))
-  input[i,8] <- ifelse(to_filter$PanCan_First_Tertile[i] == "Young_T1", "Young_T1", (ifelse(to_filter$PanCan_Last_Tertile[i] == "Old_T3", "Old_T3", "T2")))
-  input[i,9] <- to_filter$CancerAgeMedianCategory[i]
-  input[i,10] <- to_filter$Subtype_Mean_Classification[i]
-  input[i,11] <- to_filter$Subtype_Median_Classification[i]
-  input[i,12] <- ifelse(to_filter$Subtype_First_Quartile[i] == "Young_Q1", "Young_Q1", (ifelse(to_filter$Subtype_Last_Quartile[i] == "Old_Q3", "Old_Q3", "neither")))
-  input[i,13] <- ifelse(to_filter$Subtype_First_Tertile[i] == "Young_T1", "Young_T1", (ifelse(to_filter$Subtype_Last_Tertile[i] == "Old_T3", "Old_T3", "T2")))
-}
-colnames(input) <- c("CASE_ID","AGE","CANCER_TYPE","TCGA_CancerCode", "Median_Classification",
-                     "Mean_Classification", "PanCan_Quartile", "PanCan_Tertile", "CancerAgeMedianCategory",
-                     "Subtype_Mean_Classification","Subtype_Median_Classification","Subtype_Quartile", "Subtype_Tertile")
+add_to_input <- as.data.frame(matrix(ncol = 9, nrow = nrow(Age_OnyCT.df.Y)))
+colnames(add_to_input) <- c("Median_Classification","Mean_Classification", "PanCan_Quartile", 
+                            "PanCan_Tertile", "CancerAgeMedianCategory","Subtype_Mean_Classification",
+                            "Subtype_Median_Classification","Subtype_Quartile", "Subtype_Tertile")
 
-Age_OnyCT.meta <- input
+add_to_input$Median_Classification <- to_filter$Median_Classification
+add_to_input$Mean_Classification <- to_filter$Mean_Classification
+add_to_input$PanCan_Quartile <- ifelse(to_filter$PanCan_First_Quartile == "Young_Q1", "Q1", (ifelse(to_filter$PanCan_Last_Quartile == "Old_Q3", "Q4", "Q2-Q3")))
+add_to_input$PanCan_Tertile <- ifelse(to_filter$PanCan_First_Tertile == "Young_T1", "T1", (ifelse(to_filter$PanCan_Last_Tertile == "Old_T3", "T3", "T2")))
+add_to_input$CancerAgeMedianCategory <- to_filter$CancerAgeMedianCategory
+add_to_input$Subtype_Mean_Classification <- to_filter$Subtype_Mean_Classification
+add_to_input$Subtype_Median_Classification <- to_filter$Subtype_Mean_Classification
+add_to_input$Subtype_Quartile <- ifelse(to_filter$Subtype_First_Quartile == "Young_Q1", "Q1", (ifelse(to_filter$Subtype_Last_Quartile == "Old_Q3", "Q4", "Q2-Q3")))
+add_to_input$Subtype_Tertile <- ifelse(to_filter$Subtype_First_Tertile == "Young_T1", "T1", (ifelse(to_filter$Subtype_Last_Tertile == "Old_T3", "T3", "T2")))
 
-#Age_OnyCT.meta
+# ## creating unified metadata
+# for (i in 1:nrow(to_filter)) {
+#   input[i,5] <- to_filter$Median_Classification[i]
+#   input[i,6] <- to_filter$Mean_Classification[i]
+#   input[i,7] <- ifelse(to_filter$PanCan_First_Quartile[i] == "Young_Q1", "Q1", (ifelse(to_filter$PanCan_Last_Quartile[i] == "Old_Q3", "Q4", "Q2-Q3")))
+#   input[i,8] <- ifelse(to_filter$PanCan_First_Tertile[i] == "Young_T1", "T1", (ifelse(to_filter$PanCan_Last_Tertile[i] == "Old_T3", "T3", "T2")))
+#   input[i,9] <- to_filter$CancerAgeMedianCategory[i]
+#   input[i,10] <- to_filter$Subtype_Mean_Classification[i]
+#   input[i,11] <- to_filter$Subtype_Median_Classification[i]
+#   input[i,12] <- ifelse(to_filter$Subtype_First_Quartile[i] == "Young_Q1", "Q1", (ifelse(to_filter$Subtype_Last_Quartile[i] == "Old_Q3", "Q4", "Q2-Q3")))
+#   input[i,13] <- ifelse(to_filter$Subtype_First_Tertile[i] == "Young_T1", "T1", (ifelse(to_filter$Subtype_Last_Tertile[i] == "Old_T3", "T3", "T2")))
+# }
+# colnames(input) <- c("CASE_ID","AGE","CANCER_TYPE","TCGA_CancerCode", "Median_Classification",
+#                      "Mean_Classification", "PanCan_Quartile", "PanCan_Tertile", "CancerAgeMedianCategory",
+#                      "Subtype_Mean_Classification","Subtype_Median_Classification","Subtype_Quartile", "Subtype_Tertile")
+
+# length(which(duplicated(Age_OnyCT.meta$CASE_ID)))
+Age_OnyCT.meta <- data.frame(cbind(input,add_to_input), stringsAsFactors = FALSE)
+Age_OnyCT.meta$AGE <- as.numeric(Age_OnyCT.meta$AGE)
+
+ggboxplot(Age_OnyCT.meta,x = 'TCGA_CancerCode',y= 'AGE' ,
+          fill = 'CancerAgeMedianCategory',palette = 'jco',
+          order = Summarized_Ages.AllCancers$CancerType)+
+  #add = 'jitter' 
+  geom_hline(yintercept = 60,color="red")
+
+
+rm(list=setdiff(ls(), "Age_OnyCT.meta"))
+save.image("~/Documents/Elemento/AgeTCGA-master/DATA/cBioportal_Survival_Data/age_metadata.RData")
