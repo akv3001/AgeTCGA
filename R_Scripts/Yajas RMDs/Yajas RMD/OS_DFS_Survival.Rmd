@@ -1,0 +1,453 @@
+---
+title: "Survival_Analysis"
+author: "Yajas"
+date: "10/15/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,dpi=320)
+```
+
+## Load Packages and Data
+
+
+```{r packages, warning=FALSE,message=FALSE}
+library(GSVA)
+library(survival)
+library(stringi)
+library(survminer)
+library(pheatmap)
+library(dplyr)
+library(binr)
+library(ggplot2)
+library(ggpubr)
+library(reshape2)
+library(tidyverse)
+library(limma)
+library(edgeR)
+library(TCGAutils)
+library(biomaRt)
+library(org.Hs.eg.db)
+library(ggrepel)
+library(fgsea)
+library(gridExtra)
+library(fgsea)
+library(pheatmap)
+library(org.Hs.eg.db)
+load("~/Documents/Elemento/AgeTCGA-master/DATA/cBioportal_Survival_Data/age_metadata.RData")
+load("~/Documents/Elemento/AgeTCGA-master/DATA/NewTCGAcounts/Full Matrix.RData")
+
+## This function will be called to bin age groups
+age.cat <- function(x, lower = 1, upper, by = 10,
+                   sep = "-", above.char = "+") {
+ labs <- c(paste(seq(lower, upper - by, by = by),
+                 seq(lower + by - 1, upper - 1, by = by),
+                 sep = sep),
+           paste(upper, above.char, sep = ""))
+ cut(floor(x), breaks = c(seq(lower, upper, by = by), Inf),
+     right = FALSE, labels = labs)
+}
+```
+
+## Prreprocessing for DE  
+Make sure metadata and count data match up. Select breast cancer samples that are Q1 or Q4.  
+
+```{r pressure, message=FALSE}
+filtered_counts <- RNAseq_counts
+
+## include primary tumors only
+filtered_counts <- filtered_counts[ ,(TCGAbiospec(colnames(filtered_counts))$sample_definition == "Primary Solid Tumor" | 
+                                        TCGAbiospec(colnames(filtered_counts))$sample_definition == "Primary Blood Derived Cancer - Peripheral Blood")]
+
+## remove duplicates
+filtered_counts <- filtered_counts[,-c(which(duplicated(TCGAbiospec(colnames(filtered_counts))$submitter_id)))]
+
+## making sure both datasets have the same case id format
+colnames(filtered_counts) <- substr(colnames(filtered_counts), start = 1, stop = 15)
+
+## remove CASE ID factors from age metadata
+## keep breast cancer Q1 and Q4
+Age_OnyCT.meta$CASE_ID <- as.character(Age_OnyCT.meta$CASE_ID)
+Age_OnyCT.meta <- Age_OnyCT.meta[which(Age_OnyCT.meta$TCGA_CancerCode == "brca" & Age_OnyCT.meta$Subtype_Quartile != "Q2-Q3"),]
+Age_OnyCT.meta <- na.omit(Age_OnyCT.meta)
+
+## selecting case IDs common to both datasets and discarding the rest
+common_cases <- intersect(colnames(filtered_counts), Age_OnyCT.meta$CASE_ID)
+filtered_age <- Age_OnyCT.meta[Age_OnyCT.meta$CASE_ID %in% common_cases,]
+filtered_counts <- filtered_counts[,colnames(filtered_counts) %in% common_cases]
+
+## sorting case IDs
+filtered_age <- filtered_age[order(filtered_age$CASE_ID),]
+filtered_counts <- filtered_counts[,order(colnames(filtered_counts))]
+```
+
+## Limma DE Q4-Q1
+
+```{r de_limma, message=FALSE, warning=FALSE}
+## create metadata
+input <- as.data.frame(filtered_age[,c("CASE_ID","Subtype_Quartile")])
+input <- na.omit(input)
+input$Subtype_Quartile <- factor(input$Subtype_Quartile, levels = c("Q4","Q1"))
+condition <- c("Q4","Q1")
+comparison <- "Q4-Q1"
+
+## create design and contrast matrices
+design <- model.matrix(~0+ input$Subtype_Quartile)
+colnames(design) <- condition
+contmatrix <- makeContrasts(as.character(comparison),levels=design)
+
+## filter low counts
+filtered_counts<-filtered_counts[which(rowSums(cpm(filtered_counts)> 2) >= 2) ,]
+
+## model fitting
+Data.voom <- voom(filtered_counts,plot=FALSE)
+fit <- lmFit(Data.voom,design)
+fit2 <- contrasts.fit(fit,contmatrix)
+fit2 <-eBayes(fit2)
+tt <- topTable(fit2,n=Inf)
+
+## convert ENSEMBL IDs to gene symbols
+tt[,7] <- mapIds(org.Hs.eg.db, keys = rownames(tt), keytype = "ENSEMBL", column="SYMBOL", "first")
+tt <- na.omit(tt)
+tt <- tt[-which(duplicated(tt$V7)),]
+rownames(tt) <- tt$V7
+```
+
+## Curate Gene Lists  
+Create signatures from differentially expressed genes. These signatures are created based on logFC and FDR.  
+
+```{r genelist}
+## four gene lists based on fdr and logFC
+brca_age_up <- rownames(tt)[which(tt$adj.P.Val < 0.05 &tt$logFC>0)]
+brca_age_down <- rownames(tt)[which(tt$adj.P.Val < 0.05 &tt$logFC<0)]
+brca_age_up_logFC_1 <- rownames(tt)[which(tt$adj.P.Val < 0.05 &tt$logFC>1)]
+brca_age_down_logFC_1 <- rownames(tt)[which(tt$adj.P.Val < 0.05 &tt$logFC < -1)]
+
+brca_aging_geneset <- list(brca_age_up = brca_age_up,
+                           brca_age_down = brca_age_down,
+                           brca_age_up_logFC_1 = brca_age_up_logFC_1,
+                           brca_age_down_logFC_1 = brca_age_down_logFC_1)
+```
+
+## ssGSEA Preprocessing
+Make sure metadata and count data match up. Select all breast cancer samples.  
+
+```{r ssgsea_prep}
+load("~/Documents/Elemento/AgeTCGA-master/DATA/cBioportal_Survival_Data/age_metadata.RData")
+filtered_counts <- RNAseq_counts
+
+## include primary tumors only
+filtered_counts <- filtered_counts[ ,(TCGAbiospec(colnames(filtered_counts))$sample_definition == "Primary Solid Tumor" | 
+                                        TCGAbiospec(colnames(filtered_counts))$sample_definition == "Primary Blood Derived Cancer - Peripheral Blood")]
+
+## remove duplicates
+filtered_counts <- filtered_counts[,-c(which(duplicated(TCGAbiospec(colnames(filtered_counts))$submitter_id)))]
+
+## making sure both datasets have the same case id format
+colnames(filtered_counts) <- substr(colnames(filtered_counts), start = 1, stop = 15)
+
+## remove CASE ID factors from age metadata
+## keep breast cancer
+Age_OnyCT.meta$CASE_ID <- as.character(Age_OnyCT.meta$CASE_ID)
+Age_OnyCT.meta <- Age_OnyCT.meta[which(Age_OnyCT.meta$TCGA_CancerCode == "brca"),]
+Age_OnyCT.meta <- na.omit(Age_OnyCT.meta)
+
+## selecting case IDs common to both datasets and discarding the rest
+common_cases <- intersect(colnames(filtered_counts), Age_OnyCT.meta$CASE_ID)
+filtered_age <- Age_OnyCT.meta[Age_OnyCT.meta$CASE_ID %in% common_cases,]
+filtered_counts <- filtered_counts[,colnames(filtered_counts) %in% common_cases]
+
+## sorting case IDs
+filtered_age <- filtered_age[order(filtered_age$CASE_ID),]
+filtered_counts <- filtered_counts[,order(colnames(filtered_counts))]
+rm("RNAseq_counts")
+
+## conver ENSEMBL IDs to gene symbols
+filtered_counts[,ncol(filtered_counts)+1] <- mapIds(org.Hs.eg.db, keys = rownames(filtered_counts), 
+                                                    keytype = "ENSEMBL", column="SYMBOL", "first")
+filtered_counts <- na.omit(filtered_counts)
+filtered_counts <- filtered_counts[-which(duplicated(filtered_counts[,ncol(filtered_counts)])),]
+rownames(filtered_counts) <- filtered_counts[,ncol(filtered_counts)]
+filtered_counts <- filtered_counts[,-ncol(filtered_counts)]
+```
+
+## ssGSEA  
+Score signatures across the entire breast cancer dataset. Ideally, enrichment in older age groups should be equal to that in middle aged groups. This will suggest that the middle age groups have accelerated aging.  
+I have binned actual ages from 21-30, 31-40 ... because the minimum and maximum ages are 26 and 90 respectively.
+
+```{r ssgsea, message=FALSE,warning=FALSE}
+set.seed(2019)
+## generate signature
+brca_ssgsea <- gsva(as.matrix(filtered_counts), brca_aging_geneset, "Poisson", "ssgsea")
+
+## check if the order is the same
+all(colnames(brca_ssgsea) == filtered_age$CASE_ID)
+
+## correlate age with signature
+print(cor.test(brca_ssgsea[1,], filtered_age$AGE))    # aging upregulated genes
+print(cor.test(brca_ssgsea[2,], filtered_age$AGE))    # aging downregulated genes
+print(cor.test(brca_ssgsea[3,], filtered_age$AGE))    # aging upregulated genes with logFC > 1
+print(cor.test(brca_ssgsea[4,], filtered_age$AGE))    # aging downregulated genes with logFC < -1
+
+
+brca_ssgsea <- data.frame(t(brca_ssgsea), stringsAsFactors = F)
+
+## add actual age and age quartile information to the signature DF
+brca_ssgsea <- data.frame(cbind(brca_ssgsea),
+                          filtered_age$AGE,
+                          filtered_age$Subtype_Quartile,
+                          stringsAsFactors = FALSE)
+colnames(brca_ssgsea)[5:6] <- c("age","quartiles")
+
+
+## Bin ages into 10-year groups
+binned_age <- mutate(brca_ssgsea, Age_Bins = age.cat(brca_ssgsea$age, upper = 100))
+binned_age_plot <- melt(binned_age[,-5])
+
+
+## Plot the signature across age bins
+## Try with the oldest group as reference
+ggboxplot(binned_age_plot, x = 'Age_Bins', y = 'value', fill = 'Age_Bins',
+         add = "jitter", facet.by = 'variable', main = "brca aging ssGSEA enrichment",
+         subtitle = "Ref. group: 81-90") +
+  stat_compare_means(method = "wilcox", ref.group = "81-90",label = "p.signif", hide.ns = TRUE)
+
+## Try with the second oldest group as reference
+ggboxplot(binned_age_plot, x = 'Age_Bins', y = 'value', fill = 'Age_Bins',
+         add = "jitter", facet.by = 'variable', main = "brca aging ssGSEA enrichment",
+         subtitle = "Ref. group: 71-80") +
+  stat_compare_means(method = "wilcox", ref.group = "71-80",label = "p.signif", hide.ns = TRUE)
+
+## Try with the third oldest group as reference
+ggboxplot(binned_age_plot, x = 'Age_Bins', y = 'value', fill = 'Age_Bins',
+         add = "jitter", facet.by = 'variable', main = "brca aging ssGSEA enrichment",
+         subtitle = "Ref. group: 61-70") +
+  stat_compare_means(method = "wilcox", ref.group = "61-70",label = "p.signif", hide.ns = TRUE)
+```
+  
+  
+All signatures have a statistically significant absolute correlation of ~0.3.  
+All older age groups enrichments seem to be significantly different from younger ones.  
+Accelerated aging is not captured in this analysis.  
+  
+## Survival Preprocessing  
+
+Load clinical data and merge it with the signature score DF.  
+
+```{r survival_preproc, message=FALSE,warning=FALSE}
+## load clinical data
+brca_meta <- read.csv("~/Documents/Elemento/AgeTCGA-master/DATA/cBioportal_Survival_Data/Clinical_Data_brca_tcga_all.txt", stringsAsFactors = FALSE,
+                      header = T, sep = "\t")
+
+## create a single DF that contains enrichment, age metadata and cbioportal clinical data
+brca_meta <- merge(Age_OnyCT.meta, brca_meta, "CASE_ID")
+brca_ssgsea[,ncol(brca_ssgsea)+1] <- rownames(brca_ssgsea)
+colnames(brca_ssgsea)[ncol(brca_ssgsea)] <- "CASE_ID"
+
+## this is the final DF that we will use
+CancerType.sel <- merge(brca_ssgsea, brca_meta, "CASE_ID")
+
+## divide our variable of interest into quantiles
+# CancerType.sel <- mutate(CancerType.sel, SignatureScore = ntile(CancerType.sel$brca_age_down_logFC_1, 3))    ## divine signature into ntiles
+# CancerType.sel <- mutate(CancerType.sel, AgeScore = ntile(CancerType.sel$brca_age_up_logFC_1, 3))    # divide age into ntiles
+```
+
+## Overall Survival   
+Run cox regression on extreme quantiles of the age signature as well as actual age to check for overall survival benefits.  
+Only one of the four signatures (genes downregulated with aging with logFC < -1) shows any significance, so I've used that for the regression model.  
+
+```{r overall_survival, message=FALSE}
+CancerType.sel$OS_MONTHS = as.numeric(as.character(CancerType.sel$OS_MONTHS))
+CancerType.sel$event = ifelse(CancerType.sel$OS_STATUS =="LIVING",0,1)
+
+
+sig_names <- c("2 quantiles", "3 quantiles",
+               "4 quantiles", "5 quantiles")
+## save KM plots to a list
+sigPlotx <- list(0,0,0,0)
+names(sigPlotx) <- c(sig_names)
+
+## loop to generate KM plots for 2,3,4 and 5 quantiles
+for (i in 2:5) {
+  
+  ## divide the signature into quantiles
+  CancerType.sel <- mutate(CancerType.sel, SignatureScore = ntile(CancerType.sel$brca_age_down_logFC_1, i))   ## divine signature into ntiles
+  
+  ## model fit
+  surv_result = summary(coxph(Surv(time=OS_MONTHS ,event = event ) ~ SignatureScore, 
+                              data = CancerType.sel[which(CancerType.sel$SignatureScore == 1 | 
+                                                            CancerType.sel$SignatureScore == i),]))
+  fit <- survfit(Surv(time= OS_MONTHS,event = event )~ SignatureScore,
+                 data = CancerType.sel[which(CancerType.sel$SignatureScore == 1 | 
+                                                            CancerType.sel$SignatureScore == i),])
+  
+  ## get model details
+  Surv_pval <- coef(surv_result)[1,5]
+  hazard_ratio = round(surv_result$coefficients[2],5)
+  Surv_N <- surv_result$n
+  Surv_events <- surv_result$nevent
+  
+  
+  ## Plot using survminer
+  sigPlotx[[i-1]] <- ggsurvplot(fit,
+                            data = CancerType.sel,
+                            risk.table = FALSE,
+                            size = 1,
+                            conf.int = FALSE,
+                            pval = TRUE,
+                            palette = c("dodgerblue2","firebrick2"),
+                            legend.labs = c("Old", "Young"),
+                            title = paste("OS: Signature",sig_names[i-1], sep = " ")
+                            )
+}
+
+
+## Similar code to look at actual age quantiles 
+age_names <- c("2 quantiles", "3 quantiles",
+               "4 quantiles", "5 quantiles")
+
+## save KM plots to a list
+agePlotx <- list(0,0,0,0)
+names(agePlotx) <- c(agePlotx)
+
+## loop to generate KM plots for 2,3,4 and 5 quantiles
+for (i in 2:5) {
+  
+  ## divide age into quantiles
+  CancerType.sel <- mutate(CancerType.sel, AgeScore = ntile(CancerType.sel$age, i))  
+  
+  ## model fit
+  surv_result = summary(coxph(Surv(time=OS_MONTHS ,event = event ) ~ AgeScore, 
+                              data = CancerType.sel[which(CancerType.sel$AgeScore == 1 | 
+                                                            CancerType.sel$AgeScore == i),]))
+  fit <- survfit(Surv(time= OS_MONTHS,event = event )~ AgeScore,
+                 data = CancerType.sel[which(CancerType.sel$AgeScore == 1 | 
+                                                            CancerType.sel$AgeScore == i),])
+  
+  ## get model details
+  Surv_pval <- coef(surv_result)[1,5]
+  hazard_ratio = round(surv_result$coefficients[2],5)
+  Surv_N <- surv_result$n
+  Surv_events <- surv_result$nevent
+  
+  
+  ## Plot using survminer
+  agePlotx[[i-1]] <- ggsurvplot(fit,
+                            data = CancerType.sel,
+                            risk.table = FALSE,
+                            size = 1,
+                            conf.int = FALSE,
+                            pval = TRUE,
+                            palette = c("firebrick2","dodgerblue2"),
+                            legend.labs = c("Young", "Old"),
+                            ggtheme = theme_gray(),
+                            title = paste("OS: Actual Age",sig_names[i-1], sep = " ")
+                            )
+}
+
+
+## View the KM plots
+arrange_ggsurvplots(agePlotx)
+arrange_ggsurvplots(sigPlotx)
+```
+
+## Disease Free Survival  
+Run cox regression on extreme quantiles of the age signature as well as actual age to check for overall survival benefits.  
+Nither actual age, nor signature quantiles show any significant association with disease free survival.  
+
+```{r dfs_survival, message=FALSE}
+CancerType.sel$DFS_MONTHS = as.numeric(as.character(CancerType.sel$DFS_MONTHS))
+CancerType.sel$event = ifelse(CancerType.sel$DFS_STATUS =="DiseaseFree",0,1)
+
+
+sig_names <- c("2 quantiles", "3 quantiles",
+               "4 quantiles", "5 quantiles")
+
+## save KM plots to a list
+sigPlotx <- list(0,0,0,0)
+names(sigPlotx) <- c(sig_names)
+
+## loop to generate KM plots for 2,3,4 and 5 quantiles
+for (i in 2:5) {
+  
+  ## divide the signature into quantiles
+  CancerType.sel <- mutate(CancerType.sel, SignatureScore = ntile(CancerType.sel$brca_age_down_logFC_1, i))   ## divine signature into ntiles
+  
+  ## model fit
+  surv_result = summary(coxph(Surv(time=DFS_MONTHS ,event = event ) ~ SignatureScore, 
+                              data = CancerType.sel[which(CancerType.sel$SignatureScore == 1 | 
+                                                            CancerType.sel$SignatureScore == i),]))
+  fit <- survfit(Surv(time= DFS_MONTHS,event = event )~ SignatureScore,
+                 data = CancerType.sel[which(CancerType.sel$SignatureScore == 1 | 
+                                                            CancerType.sel$SignatureScore == i),])
+  
+  ## get model details
+  Surv_pval <- coef(surv_result)[1,5]
+  hazard_ratio = round(surv_result$coefficients[2],5)
+  Surv_N <- surv_result$n
+  Surv_events <- surv_result$nevent
+  
+  
+  ## Plot using survminer
+  sigPlotx[[i-1]] <- ggsurvplot(fit,
+                            data = CancerType.sel,
+                            risk.table = FALSE,
+                            size = 1,
+                            conf.int = FALSE,
+                            pval = TRUE,
+                            palette = c("dodgerblue2","firebrick2"),
+                            legend.labs = c("Old", "Young"),
+                            title = paste("DFS: Signature",sig_names[i-1], sep = " ")
+                            )
+}
+
+
+
+## Similar code to look at actual age quantiles 
+age_names <- c("2 quantiles", "3 quantiles",
+               "4 quantiles", "5 quantiles")
+
+## save KM plots to a list
+agePlotx <- list(0,0,0,0)
+names(agePlotx) <- c(agePlotx)
+
+## loop to generate KM plots for 2,3,4 and 5 quantiles
+for (i in 2:5) {
+  
+  ## divide age into quantiles
+  CancerType.sel <- mutate(CancerType.sel, AgeScore = ntile(CancerType.sel$age, i))  
+  
+  ## model fit
+  surv_result = summary(coxph(Surv(time=DFS_MONTHS ,event = event ) ~ AgeScore, 
+                              data = CancerType.sel[which(CancerType.sel$AgeScore == 1 | 
+                                                            CancerType.sel$AgeScore == i),]))
+  fit <- survfit(Surv(time= DFS_MONTHS,event = event )~ AgeScore,
+                 data = CancerType.sel[which(CancerType.sel$AgeScore == 1 | 
+                                                            CancerType.sel$AgeScore == i),])
+  
+  ## get model details
+  Surv_pval <- coef(surv_result)[1,5]
+  hazard_ratio = round(surv_result$coefficients[2],5)
+  Surv_N <- surv_result$n
+  Surv_events <- surv_result$nevent
+  
+  
+  ## Plot using survminer
+  agePlotx[[i-1]] <- ggsurvplot(fit,
+                            data = CancerType.sel,
+                            risk.table = FALSE,
+                            size = 1,
+                            conf.int = FALSE,
+                            pval = TRUE,
+                            palette = c("firebrick2","dodgerblue2"),
+                            legend.labs = c("Young", "Old"),
+                            ggtheme = theme_gray(),
+                            title = paste("DFS: Actual Age",sig_names[i-1], sep = " ")
+                            )
+}
+
+## View the KM plots
+arrange_ggsurvplots(agePlotx)
+arrange_ggsurvplots(sigPlotx)
+```
