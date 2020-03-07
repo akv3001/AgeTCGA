@@ -160,10 +160,25 @@ cancer_codes <- tumor_type
 results_meth_genes <- differentialMethylation()
 results_rnaseq_genes <- differentialEpression()
 
+# Number of up/down genes
+########################################################################################################################
+gene_count_rna <- bind_rows(results_rnaseq_genes, .id = "Cancer")
+gene_count_rna %>%
+  dplyr::mutate(Regulation = ifelse(logFC > 0, "Old", "Young")) %>%
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::group_by(Cancer) %>%
+  dplyr::count(Regulation) %>%
+  tidyr::spread(Regulation, n)
+
+
 # Gene overlap - RNASeq Pairwise
 ########################################################################################################################
 up_genes_rna <- lapply(results_rnaseq_genes, function(u)u$Gene[u$adj.P.Val < 0.05 & u$logFC > 0])
 down_genes_rna <- lapply(results_rnaseq_genes, function(u)u$Gene[u$adj.P.Val < 0.05 & u$logFC < 0])
+
+# find genes common
+names(table(plyr::ldply(down_genes_rna, cbind)[,2]))[table(plyr::ldply(down_genes_rna, cbind)[,2]) > 3]
+names(table(plyr::ldply(up_genes_rna, cbind)[,2]))[table(plyr::ldply(up_genes_rna, cbind)[,2]) > 3]
 
 # Upregulated genes
 or_data_up <- log10(getMatrix(newGOM(up_genes_rna), name = "odds.ratio")+1)
@@ -285,21 +300,21 @@ combined_results <- na.omit(data.frame(CancerCode = combined_results$CancerCode,
                                        DNAm = combined_results$Status_DNAm,
                                        Expression = combined_results$Status))
 dna.rna.interaction <- combined_results %>%
-  group_by(CancerCode) %>%
-  count(DNAm, Expression)
+  dplyr::group_by(CancerCode) %>%
+  dplyr::count(DNAm, Expression)
 write.table(x = dna.rna.interaction, "/Users/Yajas/Downloads/TCGA_DNAm-RNASeq_intersection_ALL.txt", quote = F)
 
 combined_results$Intersection <- paste0(combined_results$DNAm,"-",combined_results$Expression)
 accepted <- c("Hypermethylated-Downregulated", "Hypomethylated-Upregulated")
 combined_results <- combined_results[combined_results$Intersection %in% accepted, ]
 dna.rna.interaction <- combined_results %>%
-  group_by(CancerCode) %>%
-  count(DNAm, Expression)
+  dplyr::group_by(CancerCode) %>%
+  dplyr::count(DNAm, Expression)
 write.table(x = dna.rna.interaction, "/Users/Yajas/Downloads/TCGA_DNAm-RNASeq_intersection_FILTERED.txt", quote = F)
 
 # Genes up/downregulated across cancers
-combined_results %>% filter(Intersection == "Hypermethylated-Downregulated") %>% count(Gene)
-combined_results %>% filter(Intersection == "Hypomethylated-Upregulated") %>% count(Gene)
+combined_results %>% dplyr::filter(Intersection == "Hypermethylated-Downregulated") %>% dplyr::count(Gene)
+combined_results %>% dplyr::filter(Intersection == "Hypomethylated-Upregulated") %>% dplyr::count(Gene)
 
 ## Cluster Profiler
 combined_results$CancerCode.Intersection <- paste0(combined_results$CancerCode, "-", combined_results$Intersection)
@@ -336,8 +351,29 @@ dotplot(formula_res) +
   scale_x_discrete(labels = wrap_format(10)) +
   # scale_y_discrete(labels = wrap_format(30)) +
   scale_color_viridis_c() +
-  # scale_size_continuous(range = c(5,15)) +
-  # theme_pubclean(base_size = 25) +
+  scale_size_continuous(range = c(5,15)) +
+  theme_pubclean(base_size = 25) +
   theme(legend.position = "right",
         axis.ticks.length.y = unit(2, "lines"))
+write.table(formula_res@compareClusterResult, "/Users/Yajas/Documents/Elemento/AgeTCGA-master/Final/Tables/Supplementary table X - DEG_DMG_intersection_clusterprofiler.txt",
+            quote = FALSE)
 ggsave("/Users/Yajas/Downloads/Supplemental_RNA-DNAm_reactome_pathway_clusters.jpg", dpi = 320, width = 15)
+
+
+# filter results --> plot
+tryRows <- c(1,6,12, 18,26, 25,29,37,47,57,60,61,65,68,69,70,80, 87,89,92, 93,96, 99,102,103)
+dat0 <- as.data.frame(formula_res)
+dat0$Description <- factor(dat0$Description, levels = unique(dat0$Description))
+dat0$GeneRatio <- round(as.numeric(sub("\\/.*", "", dat0$GeneRatio))/as.numeric(sub('.*/', '', dat0$GeneRatio)), 2)
+dat0$Cluster <- gsub('\\.', ' ', dat0$Cluster)
+dat0$Cluster <- factor(dat0$Cluster, levels = unique(dat0$Cluster))
+
+ggplot(data = dat0[tryRows, ], aes(x = Cluster, y = Description)) +
+  geom_point(aes(size = GeneRatio, color = p.adjust)) +
+  scale_size_continuous(range = c(5,15)) +
+  scale_x_discrete(labels = wrap_format(4))+
+  scale_y_discrete(labels = wrap_format(45)) +
+  theme_pubclean(base_size = 25) +
+  theme(legend.position = "right") +
+  ylab(NULL) + xlab(NULL) + scale_color_viridis_c()
+ggsave("/Users/Yajas/Downloads/RNA-DNAm_reactome_pathway_clusters.jpg", dpi = 320, width = 15, height = 12)
