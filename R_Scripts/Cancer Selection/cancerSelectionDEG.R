@@ -238,7 +238,12 @@ NES_DF <- NES_DF[order(rownames(NES_DF)),]
 hallmark_annotations <- hallmark_annotations[order(hallmark_annotations$HALLMARK_PATHWAY),]
 all(rownames(NES_DF) == hallmark_annotations$HALLMARK_PATHWAY)
 
-keepPathways <- c(which(hallmark_annotations$ANNOTATION == "IMMUNE"),which(hallmark_annotations$ANNOTATION == "PROLIFERATION"),which(hallmark_annotations$ANNOTATION == "DNA DAMAGE"))
+keepPathways <- c(which(hallmark_annotations$ANNOTATION == "IMMUNE"),
+                  which(hallmark_annotations$ANNOTATION == "PROLIFERATION"),
+                  which(hallmark_annotations$ANNOTATION == "DNA DAMAGE"),
+                  which(hallmark_annotations$HALLMARK_PATHWAY == "IL2_STAT5_SIGNALING"),
+                  which(hallmark_annotations$HALLMARK_PATHWAY == "APOPTOSIS"),
+                  which(hallmark_annotations$HALLMARK_PATHWAY =="TNFA_SIGNALING_VIA_NFKB"))
 
 NES_DF <- NES_DF[keepPathways, ]
 hallmark_annotations <- hallmark_annotations[keepPathways,]
@@ -260,14 +265,15 @@ mycolors <- list(`Pathways` = c(`DEVELOPMENT` = brewer.pal(8, "Set3")[1],
 
 
 rownames(NES_DF) <- gsub('\\_', ' ', rownames(NES_DF))
+NES_DF <- NES_DF[, c("THCA","OV","BRCA","UCEC","SARC","LGG","COAD")]
 tiff("Final/Figures/Figure 1/Immune_heatmap.tiff", res = 320, height = 11, width = 15, units = "in")
 pheatmap(mat = NES_DF, 
-         border_color = "white", cellwidth = 35,cellheight = 35, fontsize = 35,
-         color = pal_gsea("default")(12), 
-         show_rownames = T, show_colnames = T,annotation_names_row = F, cutree_rows = 2, legend_breaks = c(-2,-1,0,1,2,3),
-         legend_labels = c("Young", " ", "","", "", "Old"))
+         border_color = "white", cellwidth = 25,cellheight = 25, fontsize = 20,
+         color = pal_gsea()(12), 
+         show_rownames = T, show_colnames = T,annotation_names_row = F, cutree_rows = 2,
+         treeheight_row = 15, treeheight_col = 15, scale = "none", cluster_cols = F
+         filename = "Final/Figures/Figure 1/Immune_heatmap.tiff")
 dev.off()
-
 
 ################################################################################################
 # Volcano Plots
@@ -334,3 +340,28 @@ boxplots <-
 
 
 ggarrange(boxplots, volc, nrow = 2,heights = c(1,2),align = "v") # ggsave("Final/Figures/Figure 1/Volcano.jpg", dpi = 320, width = 30, height = 11)
+
+
+
+boxplots <-
+  ggboxplot(
+    metaDF,
+    x = 'Subtype_Quartile',
+    y = 'age_at_initial_pathologic_diagnosis',
+    xlab = "Age Group",
+    ylab = "Age",
+    fill = 'Subtype_Quartile',
+    palette = 'jco',
+    ylim = c(10, 100),
+  ) +
+  theme_pubr(base_size = 25) +
+  facet_wrap('type', nrow = 1) + 
+  labs(fill = "Age Group") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  scale_y_continuous(breaks = c(25,75), labels = c(25, 75))
+
+ggsave("Final/Figures/Figure 1/age_boxplots.jpg", dpi = 320, width = 12, height = 4)
