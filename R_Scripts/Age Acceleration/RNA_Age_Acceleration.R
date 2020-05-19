@@ -209,19 +209,20 @@ ggline(
   stat_pvalue_manual(data = signif, y.position = 21, size = 15, bracket.size = 2, vjust = 0.6) +
   stat_pvalue_manual(data = signif2, y.position = c(15,0,-16), size = 5, x = "Quartile") +
   theme_pubr(base_size = 35)
-ggsave("/Users/Yajas/Documents/Elemento/AgeTCGA-master/Final/Figures/RNA Age Acceleration/AgeAccDiff(Paired Samples).tiff",
+ggsave("/Users/Yajas/Documents/Elemento/AgeTCGA-master/Final/Figures/RNA Age Acceleration/AgeAccDiff(Unpaired Samples).tiff",
        dpi = 320)
 
 
 
-ggpaired(data = res2[res2$Barcode %in% paired_barcodes$Barcode & res2$Quartile != "Middle Aged", ], 
+ ggpaired(data = res2[res2$Barcode %in% paired_barcodes$Barcode & res2$Quartile != "Middle Aged", ], 
          x = 'Status', y = 'AgeAccelerationDiff', fill = 'Quartile', id = 'Barcode',
          line.color = "gray80", palette = 'jco', facet.by = 'Quartile') +
   labs(x = NULL, y = "RNA AgeAccelerationDiff", fill = "Age") +
   stat_compare_means(method = "wilcox", paired = TRUE, label = "p.signif",label.x.npc = 0.5, label.y.npc = 0.7, hide.ns = TRUE, size = 15) +
-  theme_pubr(base_size = 35)
+  theme_pubr(base_size = 35) +
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave("/Users/Yajas/Documents/Elemento/AgeTCGA-master/Final/Figures/RNA Age Acceleration/PairedAgeAccDiff(ggpaired).tiff",
-       dpi = 320, width = 9)
+       dpi = 320)
 
 
 
