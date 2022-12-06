@@ -14,7 +14,6 @@ Broadly set of analysis would encompass:
   - Tumor mutation burden is known to be tissue and age specific already – to validate this trend across subsets 
   - Age and ethnicity distribution (contingent on available diversified cohort)
 
-Reference publication: https://pubmed.ncbi.nlm.nih.gov/34879281/![image](https://user-images.githubusercontent.com/47955870/205994506-3d16458b-39ce-4b04-9978-324f1b5f2f23.png)
 
 
 This work culminated into the following publication: https://pubmed.ncbi.nlm.nih.gov/34879281/
